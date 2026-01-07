@@ -658,10 +658,36 @@ pub fn init(
         break :command config.command;
     };
 
+    const use_custom_io = if (comptime @hasField(apprt.runtime.Surface, "use_custom_io"))
+        rt_surface.use_custom_io
+    else
+        false;
+
     // Start our IO implementation
     // This separate block ({}) is important because our errdefers must
     // be scoped here to be valid.
-    {
+    if (use_custom_io) {
+        var io_callback = try termio.Callback.init(alloc, .{});
+        errdefer io_callback.deinit();
+
+        var io_mailbox = try termio.Mailbox.initSPSC(alloc);
+        errdefer io_mailbox.deinit(alloc);
+
+        var io_config = try termio.Termio.DerivedConfig.init(alloc, config);
+        errdefer io_config.deinit();
+
+        try termio.Termio.init(&self.io, alloc, .{
+            .size = size,
+            .full_config = config,
+            .config = io_config,
+            .backend = .{ .callback = io_callback },
+            .mailbox = io_mailbox,
+            .renderer_state = &self.renderer_state,
+            .renderer_wakeup = render_thread.wakeup,
+            .renderer_mailbox = render_thread.mailbox,
+            .surface_mailbox = .{ .surface = self, .app = app_mailbox },
+        });
+    } else {
         // Exec.init takes ownership of the env even if it fails, so the
         // errdefer for it must not reach past the call.
         const env = termio_env: {
