@@ -599,6 +599,9 @@ extension Ghostty {
         /// Context for surface creation
         var context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_WINDOW
 
+        /// Use callback-based custom I/O instead of spawning a child process
+        var useCustomIO: Bool = false
+
         init() {}
 
         init(from config: ghostty_surface_config_s) {
@@ -642,6 +645,9 @@ extension Ghostty {
 
             // Set context
             config.context = context
+
+            // Set custom I/O mode
+            config.use_custom_io = useCustomIO
 
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in
