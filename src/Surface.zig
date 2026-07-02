@@ -1914,7 +1914,13 @@ pub fn dumpTextLocked(
     // Read out the text
     const text = try self.io.terminal.screens.active.selectionString(alloc, .{
         .sel = sel,
-        .trim = false,
+        // dotMux fork: trim trailing whitespace so a wrapped row's fill
+        // spaces (e.g. a full-width TUI redraw) don't survive into the
+        // rejoined text on Copy — matches native Ghostty's own copy path
+        // (copySelectionToClipboards), which honors
+        // clipboard-trim-trailing-spaces (default true) instead of always
+        // keeping raw trailing spaces.
+        .trim = true,
     });
     errdefer alloc.free(text);
 
@@ -2358,6 +2364,18 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
             );
         },
     }
+}
+
+/// Clear the active selection, if any. Safe to call when there is no
+/// selection. Locks the renderer mutex internally, so callers must NOT
+/// already hold it. Added for the embedded (iOS) apprt so a mouse-capturing
+/// program's Shift-forced selection can be dropped without a synthetic click
+/// (which such a program captures instead of collapsing the selection): see
+/// ghostty_surface_clear_selection in apprt/embedded.zig.
+pub fn clearSelection(self: *Surface) void {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    self.setSelection(null) catch {};
 }
 
 /// Change the cell size for the terminal grid. This can happen as

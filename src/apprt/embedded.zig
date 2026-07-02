@@ -1598,6 +1598,14 @@ pub const CAPI = struct {
         return surface.core_surface.hasSelection();
     }
 
+    /// Clear the active text selection, if any. Unlike synthesizing a mouse
+    /// click, this drops the selection even while a program has mouse
+    /// reporting enabled (where a click would be forwarded to the program
+    /// instead of collapsing the local Shift-forced selection).
+    export fn ghostty_surface_clear_selection(surface: *Surface) void {
+        surface.core_surface.clearSelection();
+    }
+
     /// Same as ghostty_surface_read_text but reads from the user selection,
     /// if any.
     export fn ghostty_surface_read_selection(
