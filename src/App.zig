@@ -49,6 +49,11 @@ focused_surface: ?*Surface = null,
 /// this is a blocking queue so if it is full you will get errors (or block).
 mailbox: Mailbox.Queue,
 
+/// The thread that drains `mailbox`: the one that created the app, then
+/// whichever last called `tick`. A `.forever` push from this thread drains
+/// inline instead of waiting on itself (see `Mailbox.push`).
+consumer_thread: std.atomic.Value(std.Thread.Id),
+
 /// The set of font GroupCache instances shared by surfaces with the
 /// same font configuration.
 font_grid_set: font.SharedGridSet,
@@ -97,6 +102,7 @@ pub fn init(
         .alloc = alloc,
         .surfaces = .{},
         .mailbox = .{},
+        .consumer_thread = .init(std.Thread.getCurrentId()),
         .font_grid_set = font_grid_set,
         .config_conditional_state = .{},
     };
@@ -127,6 +133,8 @@ pub fn destroy(self: *App) void {
 /// events. This should be called by the application runtime on every loop
 /// tick.
 pub fn tick(self: *App, rt_app: *apprt.App) !void {
+    self.consumer_thread.store(std.Thread.getCurrentId(), .release);
+
     // Drain our mailbox
     try self.drainMailbox(rt_app);
 }
@@ -573,14 +581,47 @@ pub const Mailbox = struct {
     rt_app: *apprt.App,
     mailbox: *Queue,
 
-    /// Send a message to the surface.
+    /// Send a message to the app thread.
+    ///
+    /// A `.forever` push made ON the consumer thread (e.g. an embedder that
+    /// feeds output synchronously with `ghostty_surface_feed_data` on the
+    /// thread that calls `ghostty_app_tick`) never waits: while the queue is
+    /// full it drains the queue inline, oldest first, then enqueues `msg`.
+    /// Waiting there could only deadlock, because the waiter is the consumer.
+    /// Callers must hold no lock a message handler takes; the stream handler
+    /// releases the renderer mutex before a `.forever` push for exactly this.
+    /// From any other thread, `.forever` blocks as before.
+    ///
+    /// Returns the queue length after the push; zero means it failed
+    /// (`.instant` or `.ns` on a full queue).
     pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
-        const result = self.mailbox.push(msg, timeout);
+        const result = switch (timeout) {
+            .forever => self.pushForever(msg),
+            .instant, .ns => self.mailbox.push(msg, timeout),
+        };
 
         // Wake up our app loop
         self.rt_app.wakeup();
 
         return result;
+    }
+
+    fn pushForever(self: Mailbox, msg: Message) Queue.Size {
+        const app: *App = @fieldParentPtr("mailbox", self.mailbox);
+        if (app.consumer_thread.load(.acquire) != std.Thread.getCurrentId()) {
+            return self.mailbox.push(msg, .{ .forever = {} });
+        }
+
+        while (true) {
+            const n = self.mailbox.push(msg, .{ .instant = {} });
+            if (n > 0) return n;
+
+            // Pops at least one message even on error or `.quit`, so this
+            // loop always makes progress.
+            app.drainMailbox(self.rt_app) catch |err| {
+                log.warn("inline mailbox drain failed err={}", .{err});
+            };
+        }
     }
 };
 
