@@ -635,7 +635,7 @@ pub const Mailbox = struct {
     }
 
     fn pushForever(self: Mailbox, msg: Message) Queue.Size {
-        const app: *App = @fieldParentPtr("mailbox", self.mailbox);
+        const app: *App = @alignCast(@fieldParentPtr("mailbox", self.mailbox));
         if (app.consumer_thread.load(.acquire) != std.Thread.getCurrentId()) {
             return self.mailbox.push(global.io(), msg, .{ .forever = {} });
         }

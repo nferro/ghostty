@@ -2547,8 +2547,8 @@ fn setSelectionAndCopy(self: *Surface, sel: terminal.Selection) !void {
 /// (which such a program captures instead of collapsing the selection): see
 /// ghostty_surface_clear_selection in apprt/embedded.zig.
 pub fn clearSelection(self: *Surface) void {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
     self.setSelection(null) catch {};
 }
 
