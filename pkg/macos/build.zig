@@ -74,6 +74,9 @@ pub fn build(b: *std.Build) !void {
         ) } },
         .target = target,
         .optimize = optimize,
+        // Aro enables Blocks by default only for macOS; the iOS SDK's
+        // CoreGraphics headers use them unguarded.
+        .extra_args = if (target.result.os.tag == .ios) &.{"-fblocks"} else &.{},
     });
 
     const lib = b.addLibrary(.{
