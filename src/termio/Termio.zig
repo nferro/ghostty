@@ -710,6 +710,63 @@ pub fn processOutput(self: *Termio, buf: []const u8) void {
     self.processOutputLocked(buf);
 }
 
+/// Replace the terminal with one restored from a Ghostty snapshot (GHOSTSNP)
+/// at the start of `buf`, reusing libghostty-vt's decoder.
+///
+/// Decoding stops at the snapshot's FINISH record; any bytes after it are
+/// left for the caller to feed with `processOutput`. The restored terminal
+/// keeps this surface's configured default colors and palette (the
+/// snapshot's OSC overrides still win) and is resized to the surface grid.
+/// The stream parser is reset and the snapshot's continuation, if any, is
+/// replayed through it.
+///
+/// Returns the number of bytes the snapshot occupied.
+pub fn applySnapshot(self: *Termio, buf: []const u8) !usize {
+    var reader: std.Io.Reader = .fixed(buf);
+    var decoded = try terminalpkg.snapshot.decode(self.alloc, global.io(), &reader, .{
+        .max_continuation_bytes = 64 * 1024 * 1024,
+    });
+    defer decoded.deinit(self.alloc);
+    const consumed = reader.seek;
+
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    var restored = decoded.toOwned();
+    errdefer restored.deinit(self.alloc);
+    restored.colors.background.default = self.terminal.colors.background.default;
+    restored.colors.foreground.default = self.terminal.colors.foreground.default;
+    restored.colors.cursor.default = self.terminal.colors.cursor.default;
+    try restored.colors.palette.changeDefault(self.alloc, self.config.palette);
+
+    const grid_size = self.size.grid();
+    try restored.resize(self.alloc, .{
+        .cols = grid_size.columns,
+        .rows = grid_size.rows,
+        .cell_size_px = .{
+            .width = self.size.cell.width,
+            .height = self.size.cell.height,
+        },
+    });
+    restored.flags.dirty.clear = true;
+    restored.flags.dirty.palette = true;
+
+    self.terminal.deinit(self.alloc);
+    self.terminal = restored;
+
+    self.terminal_stream.parser.deinit();
+    var parser: @TypeOf(self.terminal_stream.parser) = .init();
+    parser.osc_parser.alloc = self.alloc;
+    self.terminal_stream.parser = parser;
+    self.terminal_stream.utf8decoder = .{};
+
+    switch (decoded.continuation) {
+        .ground => self.terminal_stream.handler.queueRender() catch unreachable,
+        .bytes => |bytes| self.processOutputLocked(bytes),
+    }
+    return consumed;
+}
+
 /// Process output from readdata but the lock is already held.
 fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // Schedule a render. We can call this first because we have the lock.

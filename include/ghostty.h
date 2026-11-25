@@ -1220,6 +1220,10 @@ GHOSTTY_API void ghostty_surface_refresh(ghostty_surface_t);
 GHOSTTY_API void ghostty_surface_draw(ghostty_surface_t);
 // Custom I/O API - feed output into the terminal and receive writes.
 GHOSTTY_API void ghostty_surface_feed_data(ghostty_surface_t, const uint8_t*, size_t);
+// Replace the terminal with a Ghostty snapshot (GHOSTSNP) starting at the
+// buffer. Returns the snapshot's byte length (bytes after it are untouched;
+// feed them with ghostty_surface_feed_data), or 0 on a decode failure.
+GHOSTTY_API size_t ghostty_surface_apply_snapshot(ghostty_surface_t, const uint8_t*, size_t);
 GHOSTTY_API void ghostty_surface_set_write_callback(ghostty_surface_t,
                                                     ghostty_surface_write_fn GHOSTTY_NULLABLE,
                                                     void* GHOSTTY_NULLABLE);

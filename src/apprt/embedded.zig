@@ -2609,6 +2609,22 @@ pub const CAPI = struct {
             ptr.core_surface.io.processOutput(data[0..len]);
         }
 
+        /// Replace the surface's terminal with a Ghostty snapshot (GHOSTSNP)
+        /// that starts at `data`. See `Termio.applySnapshot`. Returns the
+        /// snapshot's length in bytes (feed the rest with
+        /// ghostty_surface_feed_data), or 0 if it failed to decode, in which
+        /// case the terminal is unchanged.
+        export fn ghostty_surface_apply_snapshot(
+            ptr: *Surface,
+            data: [*]const u8,
+            len: usize,
+        ) usize {
+            return ptr.core_surface.io.applySnapshot(data[0..len]) catch |err| {
+                log.warn("apply snapshot failed err={}", .{err});
+                return 0;
+            };
+        }
+
         /// Set the write callback for custom I/O backend.
         /// This callback is invoked when the terminal wants to send data
         /// (e.g., keyboard input that should go to SSH channel).
