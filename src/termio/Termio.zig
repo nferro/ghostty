@@ -739,6 +739,14 @@ pub fn applySnapshot(self: *Termio, buf: []const u8) !usize {
     restored.colors.cursor.default = self.terminal.colors.cursor.default;
     try restored.colors.palette.changeDefault(self.alloc, self.config.palette);
 
+    // The snapshot carries the encoder's scrollback limits, and a server may ship far more history
+    // than this surface is configured to keep. Keep the surface's limits; lowering them prunes the
+    // oldest history now.
+    const own = self.terminal.screens.get(.primary).?.pages.limits;
+    const restored_primary = restored.screens.get(.primary).?;
+    restored_primary.pages.setMaxBytes(explicitLimit(own.bytes.explicit));
+    restored_primary.pages.setMaxLines(explicitLimit(own.lines.explicit));
+
     const grid_size = self.size.grid();
     try restored.resize(self.alloc, .{
         .cols = grid_size.columns,
@@ -765,6 +773,11 @@ pub fn applySnapshot(self: *Termio, buf: []const u8) !usize {
         .bytes => |bytes| self.processOutputLocked(bytes),
     }
     return consumed;
+}
+
+/// A PageList limit as `setMaxBytes`/`setMaxLines` take it: unlimited is stored as maxInt.
+fn explicitLimit(value: usize) ?usize {
+    return if (value == std.math.maxInt(usize)) null else value;
 }
 
 /// Process output from readdata but the lock is already held.
